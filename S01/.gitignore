@@ -6,3 +6,7 @@ __pycache__/
 .env
 .DS_Store
 .spyproject/
+.spyproject/
+*.ini
+*.csv
+muestra_*.xlsx
