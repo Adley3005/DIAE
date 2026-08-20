@@ -6,3 +6,9 @@ scikit-learn
 statsmodels
 streamlit
 openpyxl
+plotly
+scipy
+
+
+
+
