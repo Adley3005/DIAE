@@ -89,7 +89,8 @@ plt.show()
 us_states = df[df['Country_Region'] == 'US'].groupby('Province_State')['Deaths'].sum().sort_values(ascending=False)
 
 plt.figure(figsize=(12, 6))
-sns.barplot(x=us_states.head(20).index, y=us_states.head(20).values, palette='Reds_r')
+top20_states = us_states.head(20)
+sns.barplot(x=top20_states.index, y=top20_states.values, hue=top20_states.index, palette='Reds_r', legend=False)
 plt.xticks(rotation=75)
 plt.title('Top 20 Estados de EE. UU. con Mayor Número de Fallecidos')
 plt.xlabel('Estado')
@@ -115,13 +116,107 @@ plt.ylabel('Frecuencia (Número de países)')
 plt.show()
 
 # 6. Boxplots de variables principales
-fig, axes = plt.subplots(2, 2, figsize=(12, 8))
-vars_to_plot = ['Confirmed', 'Deaths', 'Recovered', 'Active']
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+vars_to_plot = ['Confirmed', 'Deaths']
 
-for ax, col in zip(axes.flatten(), vars_to_plot):
-    sns.boxplot(y=country_totals[col], ax=ax, color='skyblue')
+for ax, col in zip(axes, vars_to_plot):
+    sns.boxplot(y=country_totals[col][country_totals[col] > 0], ax=ax, color='skyblue')
     ax.set_title(f'Distribución de {col}')
-    ax.set_yscale('log')  # Ayuda a observar la dispersión y outliers sin aplastar la escala
+    ax.set_yscale('log')
 
-plt.suptitle('Boxplots de Métricas Globales (Escala Logarítmica)', fontsize=14)
+plt.suptitle('Boxplots de Confirmados y Fallecidos (Escala Logarítmica)', fontsize=13)
 plt.show()
+
+
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy import stats
+from statsmodels.stats.proportion import proportions_ztest, proportion_confint
+
+# 1. Agrupación y Cálculo de CFR por País
+country_data = df.groupby('Country_Region')[['Confirmed', 'Deaths']].sum()
+# Filtrar países con al menos 100 casos confirmados para evitar ruido estadístico
+country_data = country_data[country_data['Confirmed'] >= 100].copy()
+country_data['CFR'] = (country_data['Deaths'] / country_data['Confirmed']) * 100
+
+# 2. Intervalo de Confianza al 95 % para el CFR (Método Wilson)
+ci_low, ci_upp = proportion_confint(
+    count=country_data['Deaths'],
+    nobs=country_data['Confirmed'],
+    alpha=0.05,
+    method='wilson'
+)
+country_data['CI_Lower_95'] = ci_low * 100
+country_data['CI_Upper_95'] = ci_upp * 100
+
+print("--- Muestra de Países con Intervalos de Confianza (95%) ---")
+print(country_data[['Confirmed', 'Deaths', 'CFR', 'CI_Lower_95', 'CI_Upper_95']].head(10))
+
+# 3. Test de Hipótesis de 2 Proporciones (Ejemplo: Perú vs México)
+p1_name, p2_name = 'Peru', 'Mexico'
+count = np.array([country_data.loc[p1_name, 'Deaths'], country_data.loc[p2_name, 'Deaths']])
+nobs = np.array([country_data.loc[p1_name, 'Confirmed'], country_data.loc[p2_name, 'Confirmed']])
+
+z_stat, p_val = proportions_ztest(count, nobs, alternative='two-sided')
+
+print(f"\n--- Prueba de Hipótesis: CFR {p1_name} vs {p2_name} ---")
+print(f"CFR {p1_name}: {country_data.loc[p1_name, 'CFR']:.2f}% | CFR {p2_name}: {country_data.loc[p2_name, 'CFR']:.2f}%")
+print(f"Estadístico Z: {z_stat:.4f}")
+print(f"P-valor: {p_val:.4e}")
+if p_val < 0.05:
+    print("Conclusión: Se rechaza H0. Existe diferencia estadísticamente significativa entre las tasas de letalidad.")
+else:
+    print("Conclusión: No se rechaza H0. No hay evidencia estadística suficiente de diferencia.")
+
+# 4. Detección de Outliers (IQR y Z-score sobre Deaths)
+# Método IQR
+Q1 = country_data['Deaths'].quantile(0.25)
+Q3 = country_data['Deaths'].quantile(0.75)
+IQR = Q3 - Q1
+upper_iqr = Q3 + 1.5 * IQR
+outliers_iqr = country_data[country_data['Deaths'] > upper_iqr]
+
+# Método Z-score
+country_data['Z_Score_Deaths'] = stats.zscore(country_data['Deaths'])
+outliers_z = country_data[np.abs(country_data['Z_Score_Deaths']) > 3]
+
+print(f"\n--- Detección de Outliers en Fallecidos ---")
+print(f"Outliers detectados por IQR: {len(outliers_iqr)} países")
+print(f"Outliers detectados por Z-Score (>3σ): {len(outliers_z)} países")
+print("Top outliers (Z-score):", list(outliers_z.index[:5]))
+
+# 5. Gráfico de Control Shewhart (3 Sigma) para Fallecidos por País
+mean_deaths = country_data['Deaths'].mean()
+std_deaths = country_data['Deaths'].std()
+ucl = mean_deaths + 3 * std_deaths
+lcl = max(0, mean_deaths - 3 * std_deaths)
+
+plt.figure(figsize=(14, 6))
+plt.plot(country_data.index, country_data['Deaths'], marker='o', linestyle='-', color='steelblue', label='Fallecidos')
+plt.axhline(mean_deaths, color='green', linestyle='--', label=f'Media: {mean_deaths:.0f}')
+plt.axhline(ucl, color='red', linestyle='--', label=f'LSC (UCL 3σ): {ucl:.0f}')
+plt.axhline(lcl, color='orange', linestyle='--', label=f'LIC (LCL 3σ): {lcl:.0f}')
+
+plt.xticks(rotation=90, fontsize=6)
+plt.title('Carta de Control (3-Sigma) de Fallecidos Totales por País')
+plt.xlabel('País')
+plt.ylabel('Fallecidos')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
