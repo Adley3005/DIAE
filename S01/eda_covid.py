@@ -143,3 +143,75 @@ plt.xlabel('País')
 plt.ylabel('Fallecidos')
 plt.legend()
 plt.show()
+
+import os
+os.environ['OMP_NUM_THREADS'] = '1'
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+
+# 1. Preparación de variables para Clustering por País
+# Agrupamos métricas clave (filtrando países con datos completos e incidencia significativa)
+country_features = df.groupby('Country_Region').agg({
+    'Confirmed': 'sum',
+    'Deaths': 'sum',
+    'Incident_Rate': 'mean'  # Tasa de incidencia media de sus regiones
+}).dropna()
+
+country_features = country_features[country_features['Confirmed'] >= 5000].copy()
+country_features['CFR'] = (country_features['Deaths'] / country_features['Confirmed']) * 100
+
+# Seleccionamos las dimensiones para el clustering
+features = ['Incident_Rate', 'CFR', 'Confirmed']
+X = country_features[features]
+
+# 2. Normalización / Escalado
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# 3. K-Means (k=3 clústeres representativos)
+kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+country_features['Cluster'] = kmeans.fit_predict(X_scaled)
+
+# 4. Reducción de Dimensionalidad con PCA (2 componentes)
+pca = PCA(n_components=2)
+pca_components = pca.fit_transform(X_scaled)
+country_features['PCA1'] = pca_components[:, 0]
+country_features['PCA2'] = pca_components[:, 1]
+
+var_exp = pca.explained_variance_ratio_ * 100
+print(f"\nVarianza explicada por PCA: PC1={var_exp[0]:.1f}%, PC2={var_exp[1]:.1f}% (Total: {sum(var_exp):.1f}%)")
+
+# 5. Visualización de Clústeres en el plano PCA
+plt.figure(figsize=(10, 6))
+sns.scatterplot(
+    x='PCA1', y='PCA2', hue='Cluster', palette='Set1',
+    data=country_features, s=80, alpha=0.85
+)
+
+# Anotar algunos países clave para interpretar
+highlight_countries = ['US', 'Peru', 'Mexico', 'China', 'Germany', 'South Africa']
+for country in highlight_countries:
+    if country in country_features.index:
+        plt.text(
+            country_features.loc[country, 'PCA1'] + 0.1,
+            country_features.loc[country, 'PCA2'] + 0.1,
+            country, fontsize=9, weight='bold'
+        )
+
+plt.title('Segmentación de Países (K-Means + PCA)')
+plt.xlabel(f'Componente Principal 1 ({var_exp[0]:.1f}%)')
+plt.ylabel(f'Componente Principal 2 ({var_exp[1]:.1f}%)')
+plt.legend(title='Clúster')
+plt.tight_layout()
+plt.show()
+
+# 6. Perfil de cada Clúster
+cluster_profile = country_features.groupby('Cluster')[features].mean()
+print("\n--- Perfil Promedio de los Clústeres ---")
+print(cluster_profile)
